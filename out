@@ -1,0 +1,52 @@
+#!/bin/bash
+
+payload="$(cat <&0)"
+access_token=$(jq -r '.source.access_token // ""' <<< "$payload")
+total_number_of_users=$(jq -r '.source.users // ""' <<< "$payload" | wc -l)
+number_of_users=$(echo `expr $total_number_of_users - 2`)
+total_number_of_teams=$(jq -r '.source.teams // ""' <<< "$payload" | wc -l)
+number_of_teams=$(echo `expr $total_number_of_teams - 2`)
+v3_endpoint=$(jq -r '.source.v3_endpoint // ""' <<< "$payload")
+
+for ((i=0; i<=$number_of_users; i=i))
+do 
+      users=$(jq -r '.source.users['$i'] // ""' <<< "$payload")
+      if [ "$users" == "$BUILD_CREATED_BY" ]; then
+          check_teams=true
+          break
+      else
+         i=$(echo `expr $i + 1`)
+      fi
+done
+
+
+if [ "$check_teams" == "true" ]; then
+   cat <<EOF
+{
+  "version":  { "verison": "v" }
+}
+EOF
+else
+for ((i=0; i<=$number_of_teams; i=i))
+do 
+      teams=$(jq -r '.source.teams['$i'] // ""' <<< "$payload")
+      response=$(curl -s -H "Accept: application/vnd.github+json" -H "Authorization: Bearer $access_token" $v3_endpoint/orgs/$teams/memberships/$BUILD_CREATED_BY)
+      role=$(echo $response | jq -r .role)
+      if [ "$role" == "null" ]; then
+          i=$(echo `expr $i + 1`)
+      else
+         break
+      fi
+done
+
+if [ "$role" == "null" ]; then
+   echo "user is not authorized to trigger this job"
+   exit 1
+else
+   cat <<EOF
+{
+  "version":  { "verison": "v" }
+}
+EOF
+fi
+fi
